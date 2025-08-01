@@ -47,8 +47,8 @@ jobs:
       - name: Download OpenWRT Image Builder
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz
-          tar xJf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz
+          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst
+          tar --zstd -xvf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst
 
       - name: Download custom packages
         run: |
