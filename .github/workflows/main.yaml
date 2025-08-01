@@ -11,11 +11,8 @@ on:
     inputs:
       openwrt_version:
         description: 'OpenWRT version'
-        required: true
-        default: '23.05.3'
-
-env:
-  OPENWRT_VERSION: ${{ github.event.inputs.openwrt_version || '24.10.1' }}
+        required: false
+        default: '24.10.1'
 
 jobs:
   build-release:
@@ -23,73 +20,82 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Set OpenWRT version
+        id: version
+        run: |
+          echo "OPENWRT_VERSION=${{ github.event.inputs.openwrt_version || '24.10.1' }}" >> $GITHUB_ENV
+
       - name: Cache OpenWRT Image Builder
-        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4
+        uses: actions/cache@v4
         id: cache
         with:
-          path:
-            openwrt-imagebuilder-${{ env.OPENWRT_VERSION
-            }}-bcm27xx-bcm2711.Linux-x86_64
+          path: openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64
           key: ${{ runner.os }}-openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}
 
       - name: Install dependencies
         run: |
-          sudo apt-get update && \
-          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev zlib1g-dev gawk git gettext libssl-dev xsltproc wget unzip python3 jq && \
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev zlib1g-dev \
+              gawk git gettext libssl-dev xsltproc wget unzip python3 jq
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod a+x /usr/local/bin/yq
 
       - name: Download OpenWRT Image Builder
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst && \
-          tar --zstd -xvf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst
+          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz
+          tar xJf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz
 
       - name: Download custom packages
         run: |
-          mkdir -p custom_packages && \
-          ARGON_URL=$(wget -q https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest -O - | jq -r '.assets[0].browser_download_url') && \
-          ARGON_CONFIG_URL=$(wget -q https://api.github.com/repos/jerrykuku/luci-app-argon-config/releases/latest -O - | jq -r '.assets[0].browser_download_url') && \
-          wget $ARGON_URL -O custom_packages/$(basename "$ARGON_URL") && \
+          mkdir -p custom_packages
+          ARGON_URL=$(wget -q https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest -O - | jq -r '.assets[0].browser_download_url')
+          ARGON_CONFIG_URL=$(wget -q https://api.github.com/repos/jerrykuku/luci-app-argon-config/releases/latest -O - | jq -r '.assets[0].browser_download_url')
+          wget $ARGON_URL -O custom_packages/$(basename "$ARGON_URL")
           wget $ARGON_CONFIG_URL -O custom_packages/$(basename "$ARGON_CONFIG_URL")
 
       - name: Load package lists
         run: |
-          packages=$(yq eval -o=json packages.yaml | jq -r 'to_entries | map(.value) | add | join(" ")') && \
+          packages=$(yq eval -o=json packages.yaml | jq -r 'to_entries | map(.value) | add | join(" ")')
           echo "PACKAGES=$packages luci-theme-argon luci-app-argon-config" >> $GITHUB_ENV
 
       - name: Build OpenWRT image
         run: |
-          cd openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64 && \
-          [ -d "../files" ] && cp -r ../files ./files && \
-          [ -d "../custom_packages" ] && cp -r ../custom_packages ./packages && \
-          echo "src imagebuilder file:packages" >> repositories.conf && \
-          sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=256/' .config && \
-          sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=10240/' .config && \
-          make image PROFILE="rpi-4" PACKAGES="${{ env.PACKAGES }}" FILES="files"
+          cd openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64
+
+          # Optional: include files directory if exists
+          [ -d "../files" ] && cp -r ../files ./files
+
+          # Include custom packages if present
+          [ -d "../custom_packages" ] && cp -r ../custom_packages ./packages
+          echo "src imagebuilder file:packages" >> repositories.conf
+
+          # Optional: change partition sizes
+          sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=256/' .config || true
+          sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=10240/' .config || true
+
+          # 🔧 Verbose build for debugging
+          make image PROFILE="rpi-4" PACKAGES="${{ env.PACKAGES }}" FILES="files" V=s
 
       - name: Validate built images
         run: |
-          cd openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/ && \
+          cd openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/
           sha256sum -c sha256sums
 
       - name: Prepare release assets
         run: |
-          rm -rf release_assets && \
-          mkdir -p release_assets && \
-          cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/openwrt-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711-rpi-4-ext4-factory.img.gz release_assets/ && \
-          cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/openwrt-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711-rpi-4-ext4-sysupgrade.img.gz release_assets/ && \
-          cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/openwrt-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711-rpi-4-squashfs-factory.img.gz release_assets/ && \
-          cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/openwrt-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711-rpi-4-squashfs-sysupgrade.img.gz release_assets/ && \
+          rm -rf release_assets
+          mkdir -p release_assets
+          cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/*.img.gz release_assets/
           cp openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64/bin/targets/bcm27xx/bcm2711/sha256sums release_assets/
 
       - name: Generate Changelog
         run: |
-          echo "## Changelog" > changelog.md && \
+          echo "## Changelog" > changelog.md
           git log $(git describe --tags --abbrev=0)..HEAD --pretty=format:"* %s" >> changelog.md
 
       - name: Set Short SHA
@@ -97,29 +103,24 @@ jobs:
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+        uses: actions/upload-artifact@v4
         with:
-          name:
-            build-artifacts-${{ env.OPENWRT_VERSION }}-${{
-            steps.vars.outputs.sha_short }}
+          name: build-artifacts-${{ env.OPENWRT_VERSION }}-${{ steps.vars.outputs.sha_short }}
           path: |
             release_assets/*
             changelog.md
 
       - name: Cleanup Image Builder
         run: |
-          rm -rf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64 && \
+          rm -rf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64
           echo "Image Builder directory removed."
 
       - name: Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
+        uses: softprops/action-gh-release@v2
         with:
           files: release_assets/*
           body_path: changelog.md
-          name:
-            'OpenWRT ${{ env.OPENWRT_VERSION }} for RPi CM4 - ${{github.ref_name }}'
-          draft: false
-          prerelease: false
+          name: 'OpenWRT ${{ env.OPENWRT_VERSION }} for RPi CM4 - ${{ github.ref_name }}'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_PAT }}
