@@ -15,7 +15,7 @@ on:
         default: '23.05.3'
 
 env:
-  OPENWRT_VERSION: ${{ github.event.inputs.openwrt_version || '23.05.3' }}
+  OPENWRT_VERSION: ${{ github.event.inputs.openwrt_version || '24.10.1' }}
 
 jobs:
   build-release:
@@ -46,8 +46,8 @@ jobs:
       - name: Download OpenWRT Image Builder
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz && \
-          tar xJf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.xz
+          wget https://downloads.openwrt.org/releases/${{ env.OPENWRT_VERSION }}/targets/bcm27xx/bcm2711/openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst && \
+          tar --zstd -xvf openwrt-imagebuilder-${{ env.OPENWRT_VERSION }}-bcm27xx-bcm2711.Linux-x86_64.tar.zst
 
       - name: Download custom packages
         run: |
@@ -118,8 +118,7 @@ jobs:
           files: release_assets/*
           body_path: changelog.md
           name:
-            'OpenWRT ${{ env.OPENWRT_VERSION }} for RPi CM4 - ${{
-            github.ref_name }}'
+            'OpenWRT ${{ env.OPENWRT_VERSION }} for RPi CM4 - ${{github.ref_name }}'
           draft: false
           prerelease: false
         env:
